@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel de Deploy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .led {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #3f3f46;
+    box-shadow: inset 0 0 2px rgba(0,0,0,.6);
+    transition: background .25s, box-shadow .25s;
+  }
+  .led.on-idle { background: #52525b; }
+  .led.on-busy { background: #f5a623; box-shadow: 0 0 8px 2px rgba(245,166,35,.7); animation: pulse 1s infinite; }
+  .led.on-ok { background: #4ade80; box-shadow: 0 0 8px 2px rgba(74,222,128,.6); }
+  .led.on-err { background: #f87171; box-shadow: 0 0 8px 2px rgba(248,113,113,.6); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .panel-card { background: #17171b; border: 1px solid #2a2a30; }
+  .scan-btn { transition: transform .12s ease; }
+  .scan-btn:active { transform: scale(0.97); }
+  ::selection { background: #f5a62333; }
+  input[type="file"]::file-selector-button {
+    background:#26262c; color:#e4e4e7; border:1px solid #35353b; border-radius:6px;
+    padding:6px 10px; font-family:'JetBrains Mono',monospace; font-size:12px; margin-right:10px;
+  }
+</style>
+</head>
+<body class="bg-[#0b0b0d] text-zinc-200 min-h-screen pb-16">
+
+  <div class="max-w-md mx-auto px-4 pt-8">
+
+    <!-- Header -->
+    <div class="mb-6">
+      <div class="flex items-center gap-2 mb-1">
+        <div class="led on-idle" id="headerLed"></div>
+        <span class="mono text-[11px] tracking-widest text-zinc-500 uppercase">alandpr / painel</span>
+      </div>
+      <h1 class="mono text-2xl font-800 text-zinc-50">Painel de Deploy</h1>
+      <p class="text-sm text-zinc-500 mt-1">Escolha o app, selecione o arquivo, publique.</p>
+    </div>
+
+    <!-- Token section -->
+    <div class="panel-card rounded-xl p-4 mb-5" id="tokenSection">
+      <div class="flex items-center justify-between mb-2">
+        <span class="mono text-xs text-zinc-500 uppercase tracking-wide">Token de acesso</span>
+        <span id="tokenStatus" class="mono text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">não conectado</span>
+      </div>
+      <div id="tokenInputRow" class="flex gap-2">
+        <input id="tokenInput" type="password" placeholder="cole seu token aqui"
+          class="flex-1 bg-[#0b0b0d] border border-zinc-700 rounded-lg px-3 py-2 text-sm mono focus:outline-none focus:border-[#f5a623]">
+        <button onclick="saveToken()" class="scan-btn bg-[#f5a623] text-black font-semibold text-sm px-4 rounded-lg">Salvar</button>
+      </div>
+      <div id="tokenSavedRow" class="hidden items-center justify-between">
+        <span class="text-sm text-zinc-400">Token salvo neste navegador</span>
+        <button onclick="clearToken()" class="text-xs text-red-400 underline">remover</button>
+      </div>
+    </div>
+
+    <!-- Apps list -->
+    <div class="mb-3 flex items-center justify-between">
+      <span class="mono text-xs text-zinc-500 uppercase tracking-wide">Apps</span>
+      <button onclick="toggleAddApp()" class="text-xs text-[#f5a623] mono">+ adicionar</button>
+    </div>
+
+    <div id="addAppBox" class="hidden panel-card rounded-xl p-4 mb-4 space-y-2">
+      <input id="newAppName" placeholder="Nome (ex: Pedal)" class="w-full bg-[#0b0b0d] border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#f5a623]">
+      <input id="newAppRepo" placeholder="Repositório (ex: alandpr/pedal)" class="w-full bg-[#0b0b0d] border border-zinc-700 rounded-lg px-3 py-2 text-sm mono focus:outline-none focus:border-[#f5a623]">
+      <button onclick="addApp()" class="w-full bg-zinc-800 text-sm py-2 rounded-lg">Adicionar app</button>
+    </div>
+
+    <div id="appsList" class="space-y-3"></div>
+
+    <!-- Log -->
+    <div class="mt-6">
+      <div class="mono text-xs text-zinc-500 uppercase tracking-wide mb-2">Registro</div>
+      <div id="log" class="panel-card rounded-xl p-3 text-xs mono text-zinc-500 space-y-1 max-h-40 overflow-y-auto">
+        <div>· aguardando ações</div>
+      </div>
+    </div>
+
+  </div>
+
+<script>
+const STORAGE_TOKEN = 'painel_gh_token';
+const STORAGE_APPS = 'painel_apps_v1';
+
+const defaultApps = [
+  { name: 'Supermercado', repo: 'alandpr/supermercado' },
+  { name: 'Investidor',   repo: 'alandpr/investidor' },
+  { name: 'Priscila Esfiha', repo: 'alandpr/Priscila-esfiha' },
+  { name: 'Coffee Master', repo: 'alandpr/Coffee-Master' },
+];
+
+function getApps() {
+  const raw = localStorage.getItem(STORAGE_APPS);
+  if (raw) return JSON.parse(raw);
+  localStorage.setItem(STORAGE_APPS, JSON.stringify(defaultApps));
+  return defaultApps;
+}
+function saveApps(apps) { localStorage.setItem(STORAGE_APPS, JSON.stringify(apps)); }
+
+function getToken() { return localStorage.getItem(STORAGE_TOKEN) || ''; }
+
+function log(msg, kind) {
+  const el = document.getElementById('log');
+  const color = kind === 'ok' ? 'text-green-400' : kind === 'err' ? 'text-red-400' : 'text-zinc-400';
+  const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const line = document.createElement('div');
+  line.className = color;
+  line.textContent = `[${time}] ${msg}`;
+  el.prepend(line);
+}
+
+function updateTokenUI() {
+  const token = getToken();
+  const statusEl = document.getElementById('tokenStatus');
+  const inputRow = document.getElementById('tokenInputRow');
+  const savedRow = document.getElementById('tokenSavedRow');
+  const headerLed = document.getElementById('headerLed');
+  if (token) {
+    statusEl.textContent = 'conectado';
+    statusEl.className = 'mono text-[11px] px-2 py-0.5 rounded-full bg-green-900/40 text-green-400';
+    inputRow.classList.add('hidden');
+    savedRow.classList.remove('hidden');
+    savedRow.classList.add('flex');
+    headerLed.className = 'led on-idle';
+  } else {
+    statusEl.textContent = 'não conectado';
+    statusEl.className = 'mono text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400';
+    inputRow.classList.remove('hidden');
+    savedRow.classList.add('hidden');
+  }
+}
+
+function saveToken() {
+  const val = document.getElementById('tokenInput').value.trim();
+  if (!val) return;
+  localStorage.setItem(STORAGE_TOKEN, val);
+  document.getElementById('tokenInput').value = '';
+  updateTokenUI();
+  log('Token salvo neste navegador.', 'ok');
+}
+
+function clearToken() {
+  localStorage.removeItem(STORAGE_TOKEN);
+  updateTokenUI();
+  log('Token removido.');
+}
+
+function toggleAddApp() {
+  document.getElementById('addAppBox').classList.toggle('hidden');
+}
+
+function addApp() {
+  const name = document.getElementById('newAppName').value.trim();
+  const repo = document.getElementById('newAppRepo').value.trim();
+  if (!name || !repo) return;
+  const apps = getApps();
+  apps.push({ name, repo });
+  saveApps(apps);
+  document.getElementById('newAppName').value = '';
+  document.getElementById('newAppRepo').value = '';
+  toggleAddApp();
+  renderApps();
+  log(`App "${name}" adicionado.`, 'ok');
+}
+
+function removeApp(idx) {
+  const apps = getApps();
+  const removed = apps.splice(idx, 1);
+  saveApps(apps);
+  renderApps();
+  log(`App "${removed[0]?.name}" removido.`);
+}
+
+function renderApps() {
+  const apps = getApps();
+  const container = document.getElementById('appsList');
+  container.innerHTML = '';
+  apps.forEach((app, idx) => {
+    const card = document.createElement('div');
+    card.className = 'panel-card rounded-xl p-4';
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <div class="led on-idle" id="led-${idx}"></div>
+          <div>
+            <div class="font-medium text-zinc-100">${app.name}</div>
+            <div class="mono text-[11px] text-zinc-500">${app.repo}</div>
+          </div>
+        </div>
+        <button onclick="removeApp(${idx})" class="text-zinc-600 text-xs">✕</button>
+      </div>
+      <div class="flex gap-2">
+        <input type="file" accept=".html" id="file-${idx}" class="flex-1 text-xs text-zinc-400">
+        <button onclick="publish(${idx})" class="scan-btn bg-[#f5a623] text-black font-semibold text-sm px-4 rounded-lg whitespace-nowrap">Publicar</button>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function setLed(idx, state) {
+  const el = document.getElementById(`led-${idx}`);
+  if (el) el.className = `led on-${state}`;
+}
+
+async function publish(idx) {
+  const apps = getApps();
+  const app = apps[idx];
+  const token = getToken();
+  const fileInput = document.getElementById(`file-${idx}`);
+  const file = fileInput.files[0];
+
+  if (!token) { log('Cole e salve o token antes de publicar.', 'err'); return; }
+  if (!file) { log(`Escolha um arquivo para ${app.name}.`, 'err'); return; }
+
+  setLed(idx, 'busy');
+  log(`Publicando ${app.name}...`);
+
+  try {
+    const content = await file.text();
+    const base64Content = btoa(unescape(encodeURIComponent(content)));
+    const [owner, repoName] = app.repo.split('/');
+    const apiUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/index.html`;
+
+    // 1. Tenta pegar o sha do arquivo atual (se existir)
+    let sha = null;
+    const getResp = await fetch(apiUrl, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' }
+    });
+    if (getResp.status === 200) {
+      const getData = await getResp.json();
+      sha = getData.sha;
+    } else if (getResp.status !== 404) {
+      const errData = await getResp.json().catch(() => ({}));
+      throw new Error(errData.message || `Erro ao consultar arquivo (${getResp.status})`);
+    }
+
+    // 2. Cria ou atualiza o arquivo
+    const putBody = {
+      message: `Deploy via painel - ${new Date().toLocaleString('pt-BR')}`,
+      content: base64Content,
+    };
+    if (sha) putBody.sha = sha;
+
+    const putResp = await fetch(apiUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(putBody)
+    });
+
+    if (putResp.status === 200 || putResp.status === 201) {
+      setLed(idx, 'ok');
+      log(`${app.name} publicado com sucesso.`, 'ok');
+      setTimeout(() => setLed(idx, 'idle'), 4000);
+    } else {
+      const errData = await putResp.json().catch(() => ({}));
+      throw new Error(errData.message || `Erro ao publicar (${putResp.status})`);
+    }
+  } catch (err) {
+    setLed(idx, 'err');
+    log(`Falha ao publicar ${app.name}: ${err.message}`, 'err');
+    setTimeout(() => setLed(idx, 'idle'), 5000);
+  }
+}
+
+// init
+updateTokenUI();
+renderApps();
+</script>
+</body>
+</html>
