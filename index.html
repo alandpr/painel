@@ -240,6 +240,7 @@ async function fetchLastDeploy(idx) {
   const [owner, repoName] = app.repo.split('/');
   try {
     const resp = await fetch(`https://api.github.com/repos/${owner}/${repoName}/commits?path=index.html&per_page=1`, {
+      cache: 'no-store',
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' }
     });
     if (!resp.ok) throw new Error(resp.status);
@@ -263,6 +264,7 @@ async function downloadIndex(idx) {
   log(`Baixando index de ${app.name}...`);
   try {
     const resp = await fetch(`https://api.github.com/repos/${owner}/${repoName}/contents/index.html`, {
+      cache: 'no-store',
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.raw+json' }
     });
     if (!resp.ok) throw new Error(resp.status === 404 ? 'index.html não encontrado' : `erro ${resp.status}`);
@@ -304,10 +306,14 @@ async function publish(idx) {
     // 1. Tenta pegar o sha do arquivo atual (se existir)
     let sha = null;
     const getResp = await fetch(apiUrl, {
+      cache: 'no-store',
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' }
     });
     if (getResp.status === 200) {
-      const getData = await getResp.json();
+      const getText = await getResp.text();
+      let getData;
+      try { getData = JSON.parse(getText); }
+      catch (e) { throw new Error('o GitHub devolveu uma resposta inesperada ao consultar o arquivo. Nada foi alterado; tente de novo.'); }
       sha = getData.sha;
     } else if (getResp.status !== 404) {
       const errData = await getResp.json().catch(() => ({}));
@@ -323,6 +329,7 @@ async function publish(idx) {
 
     const putResp = await fetch(apiUrl, {
       method: 'PUT',
+      cache: 'no-store',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/vnd.github+json',
