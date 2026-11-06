@@ -146,6 +146,7 @@ function saveToken() {
   document.getElementById('tokenInput').value = '';
   updateTokenUI();
   log('Token salvo neste navegador.', 'ok');
+  loadAllDates();
 }
 
 function clearToken() {
@@ -170,6 +171,7 @@ function addApp() {
   toggleAddApp();
   renderApps();
   log(`App "${name}" adicionado.`, 'ok');
+  loadAllDates();
 }
 
 function removeApp(idx) {
@@ -198,9 +200,13 @@ function renderApps() {
         </div>
         <button onclick="removeApp(${idx})" class="text-zinc-600 text-xs">✕</button>
       </div>
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <div id="last-${idx}" class="mono text-[11px] text-zinc-500 min-w-0">último deploy: …</div>
+        <button onclick="downloadIndex(${idx})" class="scan-btn shrink-0 mono text-[11px] text-zinc-300 border border-zinc-700 rounded-md px-2 py-1">⬇ baixar index</button>
+      </div>
       <div class="flex gap-2">
-        <input type="file" accept=".html" id="file-${idx}" class="flex-1 text-xs text-zinc-400">
-        <button onclick="publish(${idx})" class="scan-btn bg-[#f5a623] text-black font-semibold text-sm px-4 rounded-lg whitespace-nowrap">Publicar</button>
+        <input type="file" accept=".html" id="file-${idx}" class="flex-1 min-w-0 text-xs text-zinc-400">
+        <button onclick="publish(${idx})" class="scan-btn shrink-0 bg-[#f5a623] text-black font-semibold text-sm px-4 py-2 rounded-lg whitespace-nowrap">Publicar</button>
       </div>
     `;
     container.appendChild(card);
@@ -210,6 +216,70 @@ function renderApps() {
 function setLed(idx, state) {
   const el = document.getElementById(`led-${idx}`);
   if (el) el.className = `led on-${state}`;
+}
+
+function formatDeployDate(iso) {
+  const d = new Date(iso);
+  const abs = d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const diffMin = Math.round((d.getTime() - Date.now()) / 60000);
+  const rtf = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' });
+  let rel;
+  const abm = Math.abs(diffMin);
+  if (abm < 60) rel = rtf.format(diffMin, 'minute');
+  else if (abm < 60 * 24) rel = rtf.format(Math.round(diffMin / 60), 'hour');
+  else rel = rtf.format(Math.round(diffMin / 1440), 'day');
+  return `${abs} · ${rel}`;
+}
+
+async function fetchLastDeploy(idx) {
+  const el = document.getElementById(`last-${idx}`);
+  if (!el) return;
+  const token = getToken();
+  if (!token) { el.textContent = 'último deploy: conecte o token'; return; }
+  const app = getApps()[idx];
+  const [owner, repoName] = app.repo.split('/');
+  try {
+    const resp = await fetch(`https://api.github.com/repos/${owner}/${repoName}/commits?path=index.html&per_page=1`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' }
+    });
+    if (!resp.ok) throw new Error(resp.status);
+    const data = await resp.json();
+    if (!data.length) { el.textContent = 'último deploy: sem index.html'; return; }
+    el.textContent = 'último deploy: ' + formatDeployDate(data[0].commit.committer.date);
+  } catch (err) {
+    el.textContent = 'último deploy: indisponível';
+  }
+}
+
+function loadAllDates() {
+  getApps().forEach((_, idx) => fetchLastDeploy(idx));
+}
+
+async function downloadIndex(idx) {
+  const app = getApps()[idx];
+  const token = getToken();
+  if (!token) { log('Cole e salve o token antes de baixar.', 'err'); return; }
+  const [owner, repoName] = app.repo.split('/');
+  log(`Baixando index de ${app.name}...`);
+  try {
+    const resp = await fetch(`https://api.github.com/repos/${owner}/${repoName}/contents/index.html`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.raw+json' }
+    });
+    if (!resp.ok) throw new Error(resp.status === 404 ? 'index.html não encontrado' : `erro ${resp.status}`);
+    const text = await resp.text();
+    const blob = new Blob([text], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${repoName.toLowerCase()}-index.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    log(`Index de ${app.name} baixado (${repoName.toLowerCase()}-index.html).`, 'ok');
+  } catch (err) {
+    log(`Falha ao baixar ${app.name}: ${err.message}`, 'err');
+  }
 }
 
 async function publish(idx) {
@@ -264,6 +334,7 @@ async function publish(idx) {
     if (putResp.status === 200 || putResp.status === 201) {
       setLed(idx, 'ok');
       log(`${app.name} publicado com sucesso.`, 'ok');
+      fetchLastDeploy(idx);
       setTimeout(() => setLed(idx, 'idle'), 4000);
     } else {
       const errData = await putResp.json().catch(() => ({}));
@@ -279,6 +350,7 @@ async function publish(idx) {
 // init
 updateTokenUI();
 renderApps();
+loadAllDates();
 </script>
 </body>
 </html>
