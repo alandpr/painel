@@ -2,150 +2,317 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Painel de Deploy</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  body { font-family: 'Inter', sans-serif; }
-  .mono { font-family: 'JetBrains Mono', monospace; }
+  :root {
+    --bg: #09090b;
+    --card: #121214;
+    --border: #27272a;
+    --accent: #f59e0b;
+    --accent-dim: #d97706;
+  }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: #e4e4e7;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+  }
   .led {
-    width: 10px; height: 10px; border-radius: 50%;
+    width: 8px; height: 8px; border-radius: 50%;
     background: #3f3f46;
-    box-shadow: inset 0 0 2px rgba(0,0,0,.6);
-    transition: background .25s, box-shadow .25s;
+    flex-shrink: 0;
+    transition: all .2s ease;
   }
-  .led.on-idle { background: #52525b; }
-  .led.on-busy { background: #f5a623; box-shadow: 0 0 8px 2px rgba(245,166,35,.7); animation: pulse 1s infinite; }
-  .led.on-ok { background: #4ade80; box-shadow: 0 0 8px 2px rgba(74,222,128,.6); }
-  .led.on-err { background: #f87171; box-shadow: 0 0 8px 2px rgba(248,113,113,.6); }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-  .panel-card { background: #17171b; border: 1px solid #2a2a30; }
-  .scan-btn { transition: transform .12s ease; }
-  .scan-btn:active { transform: scale(0.97); }
-  ::selection { background: #f5a62333; }
+  .led.idle { background: #52525b; }
+  .led.busy { background: #f59e0b; box-shadow: 0 0 10px 2px rgba(245,158,11,.55); animation: pulse 1.1s ease infinite; }
+  .led.ok   { background: #22c55e; box-shadow: 0 0 10px 2px rgba(34,197,94,.45); }
+  .led.err  { background: #ef4444; box-shadow: 0 0 10px 2px rgba(239,68,68,.45); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .35; }
+  }
+  .btn {
+    transition: transform .1s ease, opacity .15s;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: .45; pointer-events: none; }
+  textarea.code-editor {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    tab-size: 2;
+    resize: none;
+  }
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
   input[type="file"]::file-selector-button {
-    background:#26262c; color:#e4e4e7; border:1px solid #35353b; border-radius:6px;
-    padding:6px 10px; font-family:'JetBrains Mono',monospace; font-size:12px; margin-right:10px;
+    background: #27272a;
+    color: #d4d4d8;
+    border: 1px solid #3f3f46;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    margin-right: 10px;
+    cursor: pointer;
   }
+  .fade-in { animation: fadeIn .2s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 </style>
 </head>
-<body class="bg-[#0b0b0d] text-zinc-200 min-h-screen pb-16">
+<body class="min-h-screen pb-24">
 
-  <div class="max-w-md mx-auto px-4 pt-8">
-
-    <!-- Header -->
-    <div class="mb-6">
-      <div class="flex items-center gap-2 mb-1">
-        <div class="led on-idle" id="headerLed"></div>
-        <span class="mono text-[11px] tracking-widest text-zinc-500 uppercase">alandpr / painel</span>
+  <!-- ========== HEADER ========== -->
+  <header class="sticky top-0 z-30 border-b border-zinc-800/80 bg-[#09090b]/90 backdrop-blur-md">
+    <div class="max-w-lg mx-auto px-4 py-3.5 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="led idle" id="headerLed"></div>
+        <div>
+          <h1 class="mono text-[15px] font-semibold tracking-tight text-zinc-50">Painel de Deploy</h1>
+          <p class="text-[11px] text-zinc-500 mono">alandpr · github bridge</p>
+        </div>
       </div>
-      <h1 class="mono text-2xl font-800 text-zinc-50">Painel de Deploy</h1>
-      <p class="text-sm text-zinc-500 mt-1">Escolha o app, selecione o arquivo, publique.</p>
+      <button onclick="toggleLog()" class="text-xs mono text-zinc-400 border border-zinc-700 rounded-md px-2.5 py-1 btn">
+        log
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-lg mx-auto px-4 pt-5 space-y-5">
+
+    <!-- ========== TOKEN ========== -->
+    <section class="panel rounded-xl p-4">
+      <div class="flex items-center justify-between mb-3">
+        <span class="mono text-[11px] uppercase tracking-wider text-zinc-500">Token GitHub</span>
+        <span id="tokenBadge" class="mono text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">desconectado</span>
+      </div>
+
+      <div id="tokenForm" class="space-y-2">
+        <input id="tokenInput" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+          class="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm mono placeholder:text-zinc-600 focus:outline-none focus:border-amber-500/70">
+        <button onclick="saveToken()" class="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm py-2.5 rounded-lg btn">
+          Salvar token
+        </button>
+      </div>
+
+      <div id="tokenSaved" class="hidden">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+            <span class="text-sm text-zinc-300">Token salvo neste aparelho</span>
+          </div>
+          <button onclick="clearToken()" class="text-xs text-red-400/90 underline">remover</button>
+        </div>
+        <p class="text-[11px] text-zinc-500 mt-2 leading-relaxed">
+          O token fica apenas no localStorage do navegador. Nunca é enviado para nenhum servidor além da API do GitHub.
+        </p>
+      </div>
+    </section>
+
+    <!-- ========== APPS HEADER ========== -->
+    <div class="flex items-center justify-between">
+      <span class="mono text-[11px] uppercase tracking-wider text-zinc-500">Apps</span>
+      <button onclick="toggleAddApp()" class="text-xs mono text-amber-400 hover:text-amber-300 btn">+ adicionar</button>
     </div>
 
-    <!-- Token section -->
-    <div class="panel-card rounded-xl p-4 mb-5" id="tokenSection">
-      <div class="flex items-center justify-between mb-2">
-        <span class="mono text-xs text-zinc-500 uppercase tracking-wide">Token de acesso</span>
-        <span id="tokenStatus" class="mono text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">não conectado</span>
-      </div>
-      <div id="tokenInputRow" class="flex gap-2">
-        <input id="tokenInput" type="password" placeholder="cole seu token aqui"
-          class="flex-1 bg-[#0b0b0d] border border-zinc-700 rounded-lg px-3 py-2 text-sm mono focus:outline-none focus:border-[#f5a623]">
-        <button onclick="saveToken()" class="scan-btn bg-[#f5a623] text-black font-semibold text-sm px-4 rounded-lg">Salvar</button>
-      </div>
-      <div id="tokenSavedRow" class="hidden items-center justify-between">
-        <span class="text-sm text-zinc-400">Token salvo neste navegador</span>
-        <button onclick="clearToken()" class="text-xs text-red-400 underline">remover</button>
+    <!-- Add app form -->
+    <div id="addAppBox" class="hidden panel rounded-xl p-4 space-y-2.5 fade-in">
+      <input id="newAppName" placeholder="Nome do app (ex: Coffee Master)"
+        class="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-amber-500/70">
+      <input id="newAppRepo" placeholder="owner/repo (ex: alandpr/Coffee-Master)"
+        class="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm mono focus:outline-none focus:border-amber-500/70">
+      <div class="flex gap-2">
+        <button onclick="addApp()" class="flex-1 bg-zinc-800 hover:bg-zinc-700 text-sm py-2.5 rounded-lg btn">Adicionar</button>
+        <button onclick="toggleAddApp()" class="px-4 text-sm text-zinc-400 btn">Cancelar</button>
       </div>
     </div>
 
     <!-- Apps list -->
-    <div class="mb-3 flex items-center justify-between">
-      <span class="mono text-xs text-zinc-500 uppercase tracking-wide">Apps</span>
-      <button onclick="toggleAddApp()" class="text-xs text-[#f5a623] mono">+ adicionar</button>
-    </div>
-
-    <div id="addAppBox" class="hidden panel-card rounded-xl p-4 mb-4 space-y-2">
-      <input id="newAppName" placeholder="Nome (ex: Pedal)" class="w-full bg-[#0b0b0d] border border-zinc-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#f5a623]">
-      <input id="newAppRepo" placeholder="Repositório (ex: alandpr/pedal)" class="w-full bg-[#0b0b0d] border border-zinc-700 rounded-lg px-3 py-2 text-sm mono focus:outline-none focus:border-[#f5a623]">
-      <button onclick="addApp()" class="w-full bg-zinc-800 text-sm py-2 rounded-lg">Adicionar app</button>
-    </div>
-
     <div id="appsList" class="space-y-3"></div>
 
-    <!-- Log -->
-    <div class="mt-6">
-      <div class="mono text-xs text-zinc-500 uppercase tracking-wide mb-2">Registro</div>
-      <div id="log" class="panel-card rounded-xl p-3 text-xs mono text-zinc-500 space-y-1 max-h-40 overflow-y-auto">
-        <div>· aguardando ações</div>
+    <!-- Empty state -->
+    <div id="emptyState" class="hidden text-center py-10 text-zinc-500 text-sm">
+      Nenhum app cadastrado.<br>Toque em “+ adicionar”.
+    </div>
+  </main>
+
+  <!-- ========== LOG DRAWER ========== -->
+  <div id="logDrawer" class="fixed inset-x-0 bottom-0 z-40 translate-y-full transition-transform duration-300 ease-out">
+    <div class="max-w-lg mx-auto panel border-t border-zinc-700 rounded-t-2xl shadow-2xl">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+        <span class="mono text-xs uppercase tracking-wider text-zinc-400">Registro</span>
+        <button onclick="toggleLog()" class="text-zinc-500 text-sm btn">fechar</button>
+      </div>
+      <div id="log" class="p-3 max-h-52 overflow-y-auto space-y-1 text-[12px] mono text-zinc-500">
+        <div class="text-zinc-600">· aguardando ações</div>
       </div>
     </div>
+  </div>
 
+  <!-- ========== EDITOR OVERLAY ========== -->
+  <div id="editorOverlay" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-sm">
+    <div class="absolute inset-0 flex flex-col max-w-lg mx-auto bg-[#0c0c0e]">
+      <!-- Editor header -->
+      <div class="flex items-center justify-between px-4 py-3 border-b border-zinc-800 shrink-0">
+        <div class="min-w-0">
+          <div class="mono text-sm font-medium text-zinc-100 truncate" id="editorTitle">—</div>
+          <div class="text-[11px] text-zinc-500 mono" id="editorSubtitle">editando index.html</div>
+        </div>
+        <button onclick="closeEditor()" class="text-zinc-400 text-sm px-2 py-1 btn">fechar</button>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="flex items-center gap-2 px-3 py-2 border-b border-zinc-800/80 shrink-0 bg-zinc-950/50">
+        <button onclick="refreshEditorContent()" class="text-[11px] mono text-zinc-400 border border-zinc-700 rounded px-2.5 py-1 btn">
+          ↻ recarregar
+        </button>
+        <div class="flex-1"></div>
+        <span id="editorStatus" class="text-[11px] mono text-zinc-500"></span>
+      </div>
+
+      <!-- Textarea -->
+      <textarea id="codeEditor" class="code-editor flex-1 w-full bg-[#0c0c0e] text-zinc-200 p-3 focus:outline-none border-none"
+        spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"></textarea>
+
+      <!-- Footer actions -->
+      <div class="shrink-0 border-t border-zinc-800 p-3 flex gap-2 bg-[#0c0c0e]">
+        <button onclick="closeEditor()" class="flex-1 py-2.5 rounded-lg border border-zinc-700 text-sm text-zinc-300 btn">
+          Cancelar
+        </button>
+        <button onclick="publishFromEditor()" id="btnPublishEditor"
+          class="flex-1 py-2.5 rounded-lg bg-amber-500 text-black font-semibold text-sm btn">
+          Publicar alterações
+        </button>
+      </div>
+    </div>
   </div>
 
 <script>
-const STORAGE_TOKEN = 'painel_gh_token';
-const STORAGE_APPS = 'painel_apps_v1';
+/* =========================================================
+   STATE & STORAGE
+   ========================================================= */
+const STORAGE_TOKEN = 'painel_gh_token_v2';
+const STORAGE_APPS  = 'painel_apps_v2';
 
 const defaultApps = [
-  { name: 'Supermercado', repo: 'alandpr/supermercado' },
-  { name: 'Investidor',   repo: 'alandpr/investidor' },
-  { name: 'Priscila Esfiha', repo: 'alandpr/Priscila-esfiha' },
-  { name: 'Coffee Master', repo: 'alandpr/Coffee-Master' },
-  { name: 'Pedal', repo: 'alandpr/pedal' },
+  { name: 'Supermercado',     repo: 'alandpr/supermercado' },
+  { name: 'Investidor',       repo: 'alandpr/investidor' },
+  { name: 'Priscila Esfiha',  repo: 'alandpr/Priscila-esfiha' },
+  { name: 'Coffee Master',    repo: 'alandpr/Coffee-Master' },
+  { name: 'Pedal',            repo: 'alandpr/pedal' },
 ];
 
+let currentEditorIdx = null;
+let currentEditorSha = null;
+let logOpen = false;
+
+/* =========================================================
+   HELPERS
+   ========================================================= */
 function getApps() {
   const raw = localStorage.getItem(STORAGE_APPS);
-  if (raw) return JSON.parse(raw);
+  if (raw) {
+    try { return JSON.parse(raw); } catch { /* fallthrough */ }
+  }
   localStorage.setItem(STORAGE_APPS, JSON.stringify(defaultApps));
-  return defaultApps;
+  return [...defaultApps];
 }
-function saveApps(apps) { localStorage.setItem(STORAGE_APPS, JSON.stringify(apps)); }
 
-function getToken() { return localStorage.getItem(STORAGE_TOKEN) || ''; }
+function saveApps(apps) {
+  localStorage.setItem(STORAGE_APPS, JSON.stringify(apps));
+}
 
-function log(msg, kind) {
+function getToken() {
+  return localStorage.getItem(STORAGE_TOKEN) || '';
+}
+
+function log(msg, kind = 'info') {
   const el = document.getElementById('log');
-  const color = kind === 'ok' ? 'text-green-400' : kind === 'err' ? 'text-red-400' : 'text-zinc-400';
-  const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const colors = {
+    ok:  'text-emerald-400',
+    err: 'text-red-400',
+    info:'text-zinc-400'
+  };
+  const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const line = document.createElement('div');
-  line.className = color;
+  line.className = colors[kind] || colors.info;
   line.textContent = `[${time}] ${msg}`;
   el.prepend(line);
 }
 
+function setHeaderLed(state) {
+  document.getElementById('headerLed').className = `led ${state}`;
+}
+
+function setLed(idx, state) {
+  const el = document.getElementById(`led-${idx}`);
+  if (el) el.className = `led ${state}`;
+}
+
+function formatDeployDate(iso) {
+  const d = new Date(iso);
+  const abs = d.toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: '2-digit',
+    hour: '2-digit', minute: '2-digit'
+  });
+  const diffMin = Math.round((d.getTime() - Date.now()) / 60000);
+  const rtf = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' });
+  const abm = Math.abs(diffMin);
+  let rel;
+  if (abm < 60)       rel = rtf.format(diffMin, 'minute');
+  else if (abm < 1440) rel = rtf.format(Math.round(diffMin / 60), 'hour');
+  else                rel = rtf.format(Math.round(diffMin / 1440), 'day');
+  return `${abs} · ${rel}`;
+}
+
+/* =========================================================
+   TOKEN
+   ========================================================= */
 function updateTokenUI() {
   const token = getToken();
-  const statusEl = document.getElementById('tokenStatus');
-  const inputRow = document.getElementById('tokenInputRow');
-  const savedRow = document.getElementById('tokenSavedRow');
-  const headerLed = document.getElementById('headerLed');
+  const badge = document.getElementById('tokenBadge');
+  const form  = document.getElementById('tokenForm');
+  const saved = document.getElementById('tokenSaved');
+
   if (token) {
-    statusEl.textContent = 'conectado';
-    statusEl.className = 'mono text-[11px] px-2 py-0.5 rounded-full bg-green-900/40 text-green-400';
-    inputRow.classList.add('hidden');
-    savedRow.classList.remove('hidden');
-    savedRow.classList.add('flex');
-    headerLed.className = 'led on-idle';
+    badge.textContent = 'conectado';
+    badge.className = 'mono text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400';
+    form.classList.add('hidden');
+    saved.classList.remove('hidden');
+    setHeaderLed('idle');
   } else {
-    statusEl.textContent = 'não conectado';
-    statusEl.className = 'mono text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400';
-    inputRow.classList.remove('hidden');
-    savedRow.classList.add('hidden');
+    badge.textContent = 'desconectado';
+    badge.className = 'mono text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400';
+    form.classList.remove('hidden');
+    saved.classList.add('hidden');
+    setHeaderLed('idle');
   }
 }
 
 function saveToken() {
   const val = document.getElementById('tokenInput').value.trim();
-  if (!val) return;
+  if (!val) {
+    log('Cole um token válido.', 'err');
+    return;
+  }
+  if (!val.startsWith('ghp_') && !val.startsWith('github_pat_')) {
+    log('Token parece inválido. Use um Personal Access Token do GitHub.', 'err');
+  }
   localStorage.setItem(STORAGE_TOKEN, val);
   document.getElementById('tokenInput').value = '';
   updateTokenUI();
-  log('Token salvo neste navegador.', 'ok');
+  log('Token salvo com sucesso.', 'ok');
   loadAllDates();
 }
 
@@ -153,8 +320,12 @@ function clearToken() {
   localStorage.removeItem(STORAGE_TOKEN);
   updateTokenUI();
   log('Token removido.');
+  loadAllDates();
 }
 
+/* =========================================================
+   APPS CRUD
+   ========================================================= */
 function toggleAddApp() {
   document.getElementById('addAppBox').classList.toggle('hidden');
 }
@@ -162,7 +333,14 @@ function toggleAddApp() {
 function addApp() {
   const name = document.getElementById('newAppName').value.trim();
   const repo = document.getElementById('newAppRepo').value.trim();
-  if (!name || !repo) return;
+  if (!name || !repo) {
+    log('Preencha nome e repositório.', 'err');
+    return;
+  }
+  if (!repo.includes('/')) {
+    log('Repositório deve estar no formato owner/repo.', 'err');
+    return;
+  }
   const apps = getApps();
   apps.push({ name, repo });
   saveApps(apps);
@@ -176,79 +354,151 @@ function addApp() {
 
 function removeApp(idx) {
   const apps = getApps();
-  const removed = apps.splice(idx, 1);
+  const removed = apps.splice(idx, 1)[0];
   saveApps(apps);
   renderApps();
-  log(`App "${removed[0]?.name}" removido.`);
+  log(`App "${removed?.name}" removido.`);
 }
 
+/* =========================================================
+   RENDER
+   ========================================================= */
 function renderApps() {
   const apps = getApps();
   const container = document.getElementById('appsList');
+  const empty = document.getElementById('emptyState');
   container.innerHTML = '';
+
+  if (apps.length === 0) {
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
   apps.forEach((app, idx) => {
     const card = document.createElement('div');
-    card.className = 'panel-card rounded-xl p-4';
+    card.className = 'panel rounded-xl p-4 fade-in';
     card.innerHTML = `
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <div class="led on-idle" id="led-${idx}"></div>
-          <div>
-            <div class="font-medium text-zinc-100">${app.name}</div>
-            <div class="mono text-[11px] text-zinc-500">${app.repo}</div>
+      <div class="flex items-start justify-between gap-3 mb-3">
+        <div class="flex items-start gap-2.5 min-w-0">
+          <div class="led idle mt-1.5" id="led-${idx}"></div>
+          <div class="min-w-0">
+            <div class="font-medium text-zinc-100 leading-tight">${escapeHtml(app.name)}</div>
+            <div class="mono text-[11px] text-zinc-500 mt-0.5 truncate">${escapeHtml(app.repo)}</div>
           </div>
         </div>
-        <button onclick="removeApp(${idx})" class="text-zinc-600 text-xs">✕</button>
+        <button onclick="removeApp(${idx})" class="text-zinc-600 hover:text-zinc-400 text-xs shrink-0 btn" title="Remover">✕</button>
       </div>
+
       <div class="flex items-center justify-between gap-2 mb-3">
-        <div id="last-${idx}" class="mono text-[11px] text-zinc-500 min-w-0">último deploy: …</div>
-        <button onclick="downloadIndex(${idx})" class="scan-btn shrink-0 mono text-[11px] text-zinc-300 border border-zinc-700 rounded-md px-2 py-1">⬇ baixar index</button>
+        <div id="last-${idx}" class="mono text-[11px] text-zinc-500 truncate">último deploy: …</div>
       </div>
+
+      <div class="grid grid-cols-3 gap-2 mb-3">
+        <button onclick="downloadIndex(${idx})" class="btn text-[11px] mono py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:bg-zinc-800/60">
+          ⬇ baixar
+        </button>
+        <button onclick="openEditor(${idx})" class="btn text-[11px] mono py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:bg-zinc-800/60">
+          ✎ editar
+        </button>
+        <button onclick="triggerFile(${idx})" class="btn text-[11px] mono py-2 rounded-lg bg-zinc-800 text-zinc-200 hover:bg-zinc-700">
+          📄 arquivo
+        </button>
+      </div>
+
       <div class="flex gap-2">
-        <input type="file" accept=".html" id="file-${idx}" class="flex-1 min-w-0 text-xs text-zinc-400">
-        <button onclick="publish(${idx})" class="scan-btn shrink-0 bg-[#f5a623] text-black font-semibold text-sm px-4 py-2 rounded-lg whitespace-nowrap">Publicar</button>
+        <input type="file" accept=".html,text/html" id="file-${idx}" class="hidden" onchange="onFileSelected(${idx})">
+        <button onclick="publish(${idx})" id="btn-pub-${idx}"
+          class="flex-1 btn bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm py-2.5 rounded-lg">
+          Publicar
+        </button>
       </div>
+      <div id="file-name-${idx}" class="mono text-[10px] text-zinc-500 mt-1.5 truncate hidden"></div>
     `;
     container.appendChild(card);
   });
 }
 
-function setLed(idx, state) {
-  const el = document.getElementById(`led-${idx}`);
-  if (el) el.className = `led on-${state}`;
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
-function formatDeployDate(iso) {
-  const d = new Date(iso);
-  const abs = d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const diffMin = Math.round((d.getTime() - Date.now()) / 60000);
-  const rtf = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' });
-  let rel;
-  const abm = Math.abs(diffMin);
-  if (abm < 60) rel = rtf.format(diffMin, 'minute');
-  else if (abm < 60 * 24) rel = rtf.format(Math.round(diffMin / 60), 'hour');
-  else rel = rtf.format(Math.round(diffMin / 1440), 'day');
-  return `${abs} · ${rel}`;
+function triggerFile(idx) {
+  document.getElementById(`file-${idx}`).click();
 }
 
+function onFileSelected(idx) {
+  const input = document.getElementById(`file-${idx}`);
+  const label = document.getElementById(`file-name-${idx}`);
+  if (input.files[0]) {
+    label.textContent = 'arquivo: ' + input.files[0].name;
+    label.classList.remove('hidden');
+  } else {
+    label.classList.add('hidden');
+  }
+}
+
+/* =========================================================
+   GITHUB HELPERS
+   ========================================================= */
+async function ghFetch(path, options = {}) {
+  const token = getToken();
+  if (!token) throw new Error('Token não configurado');
+
+  const headers = {
+    'Authorization': `Bearer ${token}`,
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    ...options.headers
+  };
+
+  const resp = await fetch(`https://api.github.com${path}`, {
+    cache: 'no-store',
+    ...options,
+    headers
+  });
+
+  return resp;
+}
+
+/* =========================================================
+   LAST DEPLOY
+   ========================================================= */
 async function fetchLastDeploy(idx) {
   const el = document.getElementById(`last-${idx}`);
   if (!el) return;
+
   const token = getToken();
-  if (!token) { el.textContent = 'último deploy: conecte o token'; return; }
+  if (!token) {
+    el.textContent = 'último deploy: conecte o token';
+    return;
+  }
+
   const app = getApps()[idx];
   const [owner, repoName] = app.repo.split('/');
+
   try {
-    const resp = await fetch(`https://api.github.com/repos/${owner}/${repoName}/commits?path=index.html&per_page=1`, {
-      cache: 'no-store',
-      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' }
-    });
-    if (!resp.ok) throw new Error(resp.status);
+    const resp = await ghFetch(`/repos/${owner}/${repoName}/commits?path=index.html&per_page=1`);
+    if (!resp.ok) {
+      if (resp.status === 404) {
+        el.textContent = 'último deploy: repositório não encontrado';
+      } else {
+        el.textContent = 'último deploy: indisponível';
+      }
+      return;
+    }
     const data = await resp.json();
-    if (!data.length) { el.textContent = 'último deploy: sem index.html'; return; }
+    if (!data.length) {
+      el.textContent = 'último deploy: sem index.html ainda';
+      return;
+    }
     el.textContent = 'último deploy: ' + formatDeployDate(data[0].commit.committer.date);
   } catch (err) {
-    el.textContent = 'último deploy: indisponível';
+    el.textContent = 'último deploy: erro de rede';
   }
 }
 
@@ -256,18 +506,30 @@ function loadAllDates() {
   getApps().forEach((_, idx) => fetchLastDeploy(idx));
 }
 
+/* =========================================================
+   DOWNLOAD
+   ========================================================= */
 async function downloadIndex(idx) {
   const app = getApps()[idx];
-  const token = getToken();
-  if (!token) { log('Cole e salve o token antes de baixar.', 'err'); return; }
+  if (!getToken()) {
+    log('Salve o token antes de baixar.', 'err');
+    return;
+  }
+
   const [owner, repoName] = app.repo.split('/');
   log(`Baixando index de ${app.name}...`);
+  setLed(idx, 'busy');
+
   try {
-    const resp = await fetch(`https://api.github.com/repos/${owner}/${repoName}/contents/index.html`, {
-      cache: 'no-store',
-      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github.raw+json' }
+    const resp = await ghFetch(`/repos/${owner}/${repoName}/contents/index.html`, {
+      headers: { 'Accept': 'application/vnd.github.raw+json' }
     });
-    if (!resp.ok) throw new Error(resp.status === 404 ? 'index.html não encontrado' : `erro ${resp.status}`);
+
+    if (!resp.ok) {
+      if (resp.status === 404) throw new Error('index.html não encontrado no repositório');
+      throw new Error(`erro ${resp.status}`);
+    }
+
     const text = await resp.text();
     const blob = new Blob([text], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -277,84 +539,227 @@ async function downloadIndex(idx) {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-    log(`Index de ${app.name} baixado (${repoName.toLowerCase()}-index.html).`, 'ok');
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+
+    setLed(idx, 'ok');
+    log(`Index de ${app.name} baixado.`, 'ok');
+    setTimeout(() => setLed(idx, 'idle'), 2500);
   } catch (err) {
+    setLed(idx, 'err');
     log(`Falha ao baixar ${app.name}: ${err.message}`, 'err');
+    setTimeout(() => setLed(idx, 'idle'), 4000);
   }
 }
 
+/* =========================================================
+   EDITOR
+   ========================================================= */
+async function openEditor(idx) {
+  if (!getToken()) {
+    log('Salve o token antes de editar.', 'err');
+    return;
+  }
+
+  currentEditorIdx = idx;
+  const app = getApps()[idx];
+  document.getElementById('editorTitle').textContent = app.name;
+  document.getElementById('editorSubtitle').textContent = app.repo + ' · index.html';
+  document.getElementById('codeEditor').value = '';
+  document.getElementById('editorStatus').textContent = 'carregando...';
+  document.getElementById('editorOverlay').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+
+  await refreshEditorContent();
+}
+
+async function refreshEditorContent() {
+  if (currentEditorIdx === null) return;
+
+  const app = getApps()[currentEditorIdx];
+  const [owner, repoName] = app.repo.split('/');
+  const statusEl = document.getElementById('editorStatus');
+  const editor = document.getElementById('codeEditor');
+
+  statusEl.textContent = 'carregando...';
+  setLed(currentEditorIdx, 'busy');
+
+  try {
+    // First get metadata (for sha)
+    const metaResp = await ghFetch(`/repos/${owner}/${repoName}/contents/index.html`);
+    if (metaResp.status === 404) {
+      editor.value = '<!-- Arquivo ainda não existe no repositório.\n     Cole ou escreva o HTML aqui e publique. -->\n';
+      currentEditorSha = null;
+      statusEl.textContent = 'arquivo novo';
+      setLed(currentEditorIdx, 'idle');
+      return;
+    }
+    if (!metaResp.ok) throw new Error(`erro ${metaResp.status}`);
+
+    const meta = await metaResp.json();
+    currentEditorSha = meta.sha;
+
+    // Get raw content
+    const rawResp = await ghFetch(`/repos/${owner}/${repoName}/contents/index.html`, {
+      headers: { 'Accept': 'application/vnd.github.raw+json' }
+    });
+    if (!rawResp.ok) throw new Error('falha ao baixar conteúdo');
+
+    const text = await rawResp.text();
+    editor.value = text;
+    statusEl.textContent = `${(text.length / 1024).toFixed(1)} KB · pronto`;
+    setLed(currentEditorIdx, 'idle');
+  } catch (err) {
+    statusEl.textContent = 'erro ao carregar';
+    log(`Erro ao abrir editor de ${app.name}: ${err.message}`, 'err');
+    setLed(currentEditorIdx, 'err');
+    setTimeout(() => setLed(currentEditorIdx, 'idle'), 3000);
+  }
+}
+
+function closeEditor() {
+  document.getElementById('editorOverlay').classList.add('hidden');
+  document.body.style.overflow = '';
+  currentEditorIdx = null;
+  currentEditorSha = null;
+}
+
+async function publishFromEditor() {
+  if (currentEditorIdx === null) return;
+
+  const content = document.getElementById('codeEditor').value;
+  if (!content.trim()) {
+    log('O editor está vazio.', 'err');
+    return;
+  }
+
+  const app = getApps()[currentEditorIdx];
+  const btn = document.getElementById('btnPublishEditor');
+  btn.disabled = true;
+  btn.textContent = 'Publicando...';
+
+  try {
+    await doPublish(currentEditorIdx, content, currentEditorSha);
+    // update sha after success by reloading metadata would be ideal,
+    // but for simplicity we just close or refresh
+    setTimeout(() => {
+      closeEditor();
+    }, 800);
+  } catch (err) {
+    // error already logged inside doPublish
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Publicar alterações';
+  }
+}
+
+/* =========================================================
+   PUBLISH (core)
+   ========================================================= */
 async function publish(idx) {
-  const apps = getApps();
-  const app = apps[idx];
-  const token = getToken();
   const fileInput = document.getElementById(`file-${idx}`);
   const file = fileInput.files[0];
 
-  if (!token) { log('Cole e salve o token antes de publicar.', 'err'); return; }
-  if (!file) { log(`Escolha um arquivo para ${app.name}.`, 'err'); return; }
+  if (!getToken()) {
+    log('Salve o token antes de publicar.', 'err');
+    return;
+  }
+  if (!file) {
+    log('Escolha um arquivo HTML primeiro (botão “arquivo”).', 'err');
+    return;
+  }
+
+  const content = await file.text();
+  await doPublish(idx, content, null); // sha will be fetched inside
+}
+
+async function doPublish(idx, content, knownSha = null) {
+  const apps = getApps();
+  const app = apps[idx];
+  const [owner, repoName] = app.repo.split('/');
 
   setLed(idx, 'busy');
+  setHeaderLed('busy');
   log(`Publicando ${app.name}...`);
 
   try {
-    const content = await file.text();
     const base64Content = btoa(unescape(encodeURIComponent(content)));
-    const [owner, repoName] = app.repo.split('/');
-    const apiUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/index.html`;
+    const apiPath = `/repos/${owner}/${repoName}/contents/index.html`;
 
-    // 1. Tenta pegar o sha do arquivo atual (se existir)
-    let sha = null;
-    const getResp = await fetch(apiUrl, {
-      cache: 'no-store',
-      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' }
-    });
-    if (getResp.status === 200) {
-      const getText = await getResp.text();
-      let getData;
-      try { getData = JSON.parse(getText); }
-      catch (e) { throw new Error('o GitHub devolveu uma resposta inesperada ao consultar o arquivo. Nada foi alterado; tente de novo.'); }
-      sha = getData.sha;
-    } else if (getResp.status !== 404) {
-      const errData = await getResp.json().catch(() => ({}));
-      throw new Error(errData.message || `Erro ao consultar arquivo (${getResp.status})`);
+    // Get current SHA if not provided
+    let sha = knownSha;
+    if (sha === null) {
+      const getResp = await ghFetch(apiPath);
+      if (getResp.status === 200) {
+        const data = await getResp.json();
+        sha = data.sha;
+      } else if (getResp.status !== 404) {
+        const err = await getResp.json().catch(() => ({}));
+        throw new Error(err.message || `Erro ao consultar arquivo (${getResp.status})`);
+      }
     }
 
-    // 2. Cria ou atualiza o arquivo
-    const putBody = {
-      message: `Deploy via painel - ${new Date().toLocaleString('pt-BR')}`,
+    const body = {
+      message: `Deploy via Painel · ${new Date().toLocaleString('pt-BR')}`,
       content: base64Content,
     };
-    if (sha) putBody.sha = sha;
+    if (sha) body.sha = sha;
 
-    const putResp = await fetch(apiUrl, {
+    const putResp = await ghFetch(apiPath, {
       method: 'PUT',
-      cache: 'no-store',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/vnd.github+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(putBody)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
     });
 
     if (putResp.status === 200 || putResp.status === 201) {
       setLed(idx, 'ok');
+      setHeaderLed('ok');
       log(`${app.name} publicado com sucesso.`, 'ok');
       fetchLastDeploy(idx);
-      setTimeout(() => setLed(idx, 'idle'), 4000);
+
+      // clear file input
+      const fileInput = document.getElementById(`file-${idx}`);
+      if (fileInput) {
+        fileInput.value = '';
+        const label = document.getElementById(`file-name-${idx}`);
+        if (label) label.classList.add('hidden');
+      }
+
+      setTimeout(() => {
+        setLed(idx, 'idle');
+        setHeaderLed('idle');
+      }, 3500);
     } else {
       const errData = await putResp.json().catch(() => ({}));
-      throw new Error(errData.message || `Erro ao publicar (${putResp.status})`);
+      throw new Error(errData.message || `Erro ${putResp.status}`);
     }
   } catch (err) {
     setLed(idx, 'err');
+    setHeaderLed('err');
     log(`Falha ao publicar ${app.name}: ${err.message}`, 'err');
-    setTimeout(() => setLed(idx, 'idle'), 5000);
+    setTimeout(() => {
+      setLed(idx, 'idle');
+      setHeaderLed('idle');
+    }, 4500);
+    throw err;
   }
 }
 
-// init
+/* =========================================================
+   LOG DRAWER
+   ========================================================= */
+function toggleLog() {
+  const drawer = document.getElementById('logDrawer');
+  logOpen = !logOpen;
+  if (logOpen) {
+    drawer.classList.remove('translate-y-full');
+  } else {
+    drawer.classList.add('translate-y-full');
+  }
+}
+
+/* =========================================================
+   INIT
+   ========================================================= */
 updateTokenUI();
 renderApps();
 loadAllDates();
