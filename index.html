@@ -161,16 +161,25 @@
         </div>
         <span id="editorDirty" class="hidden text-[10px] mono text-amber-400 shrink-0">• modificado</span>
       </div>
-      <div class="flex items-center gap-2 mt-2">
-        <button onclick="reloadFile()" class="text-[11px] mono text-zinc-400 border border-zinc-700 rounded px-2.5 py-1 btn">↻</button>
-        <div class="flex-1 text-[11px] mono text-zinc-500" id="editorMeta"></div>
-        <button onclick="commitFile()" id="btnCommit" class="text-[12px] font-semibold bg-amber-500 text-black rounded-md px-4 py-1.5 btn">
+      <div class="flex items-center gap-1.5 mt-2 flex-wrap">
+        <button onclick="reloadFile()" class="text-[11px] mono text-zinc-400 border border-zinc-700 rounded px-2 py-1 btn" title="Recarregar">↻</button>
+        <button id="btnPreview" onclick="previewHtml()" class="hidden text-[11px] mono text-sky-400 border border-sky-800/60 rounded px-2 py-1 btn">Ver</button>
+        <button onclick="deleteCurrentFile()" class="text-[11px] mono text-red-400/90 border border-red-900/50 rounded px-2 py-1 btn">Excluir</button>
+        <div class="flex-1 text-[11px] mono text-zinc-500 min-w-[3rem]" id="editorMeta"></div>
+        <button onclick="openCommitModal()" id="btnCommit" class="text-[12px] font-semibold bg-amber-500 text-black rounded-md px-3.5 py-1.5 btn">
           Commit
         </button>
       </div>
+      <div id="draftBanner" class="hidden mt-2 text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
+        <span>Rascunho salvo encontrado</span>
+        <div class="flex gap-2 shrink-0">
+          <button onclick="restoreDraft()" class="underline">Restaurar</button>
+          <button onclick="discardDraft()" class="text-zinc-400">Descartar</button>
+        </div>
+      </div>
     </div>
 
-    <textarea id="codeEditor" class="code w-full bg-transparent text-zinc-200 pt-3 focus:outline-none border-none min-h-[72vh]"
+    <textarea id="codeEditor" class="code w-full bg-transparent text-zinc-200 pt-3 focus:outline-none border-none min-h-[68vh]"
       spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"
       oninput="onEditorInput()"></textarea>
   </section>
@@ -257,11 +266,37 @@
   </div>
 </div>
 
+<!-- Commit message modal -->
+<div id="commitModal" class="fixed inset-0 z-50 hidden bg-black/70 flex items-end sm:items-center justify-center p-4">
+  <div class="panel rounded-xl w-full max-w-sm p-4 space-y-3">
+    <div class="text-sm font-medium text-zinc-100">Mensagem do commit</div>
+    <input id="commitMessage" placeholder="Ex: ajustei o header do site"
+      class="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-amber-500/50"
+      onkeydown="if(event.key==='Enter') doCommit()">
+    <p class="text-[11px] text-zinc-500">Deixe em branco para usar a mensagem automática.</p>
+    <div class="flex gap-2">
+      <button onclick="closeCommitModal()" class="flex-1 py-2.5 rounded-lg border border-zinc-700 text-sm text-zinc-300 btn">Cancelar</button>
+      <button onclick="doCommit()" id="btnDoCommit" class="flex-1 py-2.5 rounded-lg bg-amber-500 text-black font-semibold text-sm btn">Enviar</button>
+    </div>
+  </div>
+</div>
+
+<!-- HTML Preview overlay -->
+<div id="previewOverlay" class="fixed inset-0 z-[60] hidden bg-black flex flex-col">
+  <div class="flex items-center gap-2 px-3 h-12 border-b border-zinc-800 bg-[#09090b] shrink-0">
+    <button onclick="closePreview()" class="text-zinc-300 text-lg px-2 btn">←</button>
+    <div class="flex-1 text-[13px] mono text-zinc-200 truncate" id="previewTitle">Prévia</div>
+    <button onclick="closePreview()" class="text-[12px] text-zinc-400 border border-zinc-700 rounded px-2.5 py-1 btn">Fechar</button>
+  </div>
+  <iframe id="previewFrame" class="flex-1 w-full bg-white border-0" sandbox="allow-scripts allow-same-origin"></iframe>
+</div>
+
 <script>
 /* ============================================================
    STATE + HISTORY (para o botão voltar do celular funcionar)
    ============================================================ */
 const STORAGE_TOKEN = 'deploy_panel_token_v4';
+const STORAGE_DRAFT_PREFIX = 'deploy_panel_draft_';
 
 const state = {
   token: localStorage.getItem(STORAGE_TOKEN) || '',
@@ -272,6 +307,8 @@ const state = {
   currentPath: '',       // path da pasta atual
   currentFile: null,     // { path, sha, content, original }
   dirty: false,
+  draftTimer: null,      // debounce do auto-save
+  pendingDraft: null,    // rascunho encontrado ao abrir arquivo
 
   view: 'repos'
 };
@@ -296,6 +333,14 @@ function navigate(view, push = true) {
 }
 
 function goBack() {
+  // se estiver no editor com alterações, salva rascunho e pergunta
+  if (state.view === 'editor' && state.dirty) {
+    saveDraft();
+    if (!confirm('Você tem alterações não enviadas.\nO rascunho foi salvo neste aparelho.\n\nSair do editor mesmo assim?')) {
+      return;
+    }
+  }
+
   // prioriza histórico do navegador (funciona com botão do celular)
   if (history.state && history.state.view) {
     history.back();
@@ -303,7 +348,6 @@ function goBack() {
   }
   // fallback manual
   if (state.view === 'editor') {
-    if (state.dirty && !confirm('Descartar alterações não salvas?')) return;
     state.currentFile = null;
     state.dirty = false;
     navigate('browser', false);
@@ -612,13 +656,14 @@ function renderBrowser(items) {
     row.className = 'row w-full flex items-center gap-3 px-2.5 py-3 rounded-lg text-left btn fade';
     row.onclick = () => isDir ? loadPath(item.path) : openFile(item);
 
+    const sizeText = !isDir && item.size != null ? formatSize(item.size) : '';
     row.innerHTML = `
       <span class="text-base w-6 text-center shrink-0">${isDir ? '📁' : fileIcon(item.name)}</span>
       <div class="min-w-0 flex-1">
         <div class="text-[13px] ${isDir ? 'font-medium text-zinc-100' : 'mono text-zinc-200'} truncate">${escapeHtml(item.name)}</div>
+        ${sizeText ? `<div class="text-[10px] text-zinc-600 mono">${sizeText}</div>` : ''}
       </div>
-      <div class="text-[10px] text-zinc-600 mono shrink-0">${!isDir && item.size != null ? formatSize(item.size) : ''}</div>
-      ${isDir ? '<span class="text-zinc-600">›</span>' : ''}`;
+      ${isDir ? '<span class="text-zinc-600 text-sm">›</span>' : ''}`;
     list.appendChild(row);
   });
 }
@@ -762,6 +807,44 @@ async function openFile(item) {
   }
 }
 
+function draftKey(path) {
+  if (!state.currentRepo || !path) return null;
+  return STORAGE_DRAFT_PREFIX + state.currentRepo.full_name + '::' + path;
+}
+
+function saveDraft() {
+  if (!state.currentFile) return;
+  const key = draftKey(state.currentFile.path);
+  if (!key) return;
+  try {
+    if (state.dirty) {
+      localStorage.setItem(key, JSON.stringify({
+        content: state.currentFile.content,
+        savedAt: Date.now()
+      }));
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch (_) {}
+}
+
+function loadDraft(path) {
+  const key = draftKey(path);
+  if (!key) return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function clearDraft(path) {
+  const key = draftKey(path);
+  if (key) localStorage.removeItem(key);
+}
+
 function openEditorUI() {
   const f = state.currentFile;
   $('editorFileName').textContent = f.path.split('/').pop();
@@ -769,6 +852,20 @@ function openEditorUI() {
   $('codeEditor').value = f.content;
   $('editorMeta').textContent = formatSize(new Blob([f.content]).size);
   $('editorDirty').classList.toggle('hidden', !state.dirty);
+
+  // botão de prévia só para HTML
+  const isHtml = /\.(html?|htm)$/i.test(f.path);
+  $('btnPreview').classList.toggle('hidden', !isHtml);
+
+  // verifica rascunho
+  state.pendingDraft = null;
+  $('draftBanner').classList.add('hidden');
+  const draft = loadDraft(f.path);
+  if (draft && draft.content && draft.content !== f.content) {
+    state.pendingDraft = draft;
+    $('draftBanner').classList.remove('hidden');
+  }
+
   navigate('editor');
 }
 
@@ -778,30 +875,71 @@ function onEditorInput() {
   state.dirty = state.currentFile.content !== state.currentFile.original;
   $('editorDirty').classList.toggle('hidden', !state.dirty);
   $('editorMeta').textContent = formatSize(new Blob([state.currentFile.content]).size);
+
+  // auto-save com debounce (1.2s)
+  clearTimeout(state.draftTimer);
+  state.draftTimer = setTimeout(saveDraft, 1200);
+}
+
+function restoreDraft() {
+  if (!state.pendingDraft || !state.currentFile) return;
+  state.currentFile.content = state.pendingDraft.content;
+  $('codeEditor').value = state.pendingDraft.content;
+  state.dirty = state.currentFile.content !== state.currentFile.original;
+  $('editorDirty').classList.toggle('hidden', !state.dirty);
+  $('editorMeta').textContent = formatSize(new Blob([state.currentFile.content]).size);
+  $('draftBanner').classList.add('hidden');
+  state.pendingDraft = null;
+  toast('Rascunho restaurado', 'ok');
+}
+
+function discardDraft() {
+  if (!state.currentFile) return;
+  clearDraft(state.currentFile.path);
+  $('draftBanner').classList.add('hidden');
+  state.pendingDraft = null;
+  toast('Rascunho descartado', 'ok');
 }
 
 async function reloadFile() {
   if (!state.currentFile) return;
   if (state.dirty && !confirm('Descartar alterações e recarregar?')) return;
+  clearDraft(state.currentFile.path);
   await openFileByPath(state.currentFile.path);
   toast('Recarregado', 'ok');
 }
 
-async function commitFile() {
+/* ---- Commit com mensagem ---- */
+function openCommitModal() {
   if (!state.currentFile) return;
   if (!state.dirty && state.currentFile.sha) return toast('Nenhuma alteração');
+  $('commitMessage').value = '';
+  $('commitModal').classList.remove('hidden');
+  setTimeout(() => $('commitMessage').focus(), 80);
+}
+
+function closeCommitModal() {
+  $('commitModal').classList.add('hidden');
+}
+
+async function doCommit() {
+  if (!state.currentFile) return;
+  const msg = $('commitMessage').value.trim();
+  closeCommitModal();
 
   const btn = $('btnCommit');
+  const btnDo = $('btnDoCommit');
   btn.disabled = true;
+  btnDo.disabled = true;
   btn.textContent = 'Enviando...';
   setLed('busy');
 
   try {
-    await putFile(state.currentFile.path, state.currentFile.content, state.currentFile.sha);
-    // atualiza sha local (busca de novo seria mais seguro, mas ok)
+    await putFile(state.currentFile.path, state.currentFile.content, state.currentFile.sha, msg);
     state.currentFile.original = state.currentFile.content;
     state.dirty = false;
     $('editorDirty').classList.add('hidden');
+    clearDraft(state.currentFile.path);
     setLed('ok');
     toast('Commit feito com sucesso', 'ok');
     setTimeout(() => setLed(''), 2000);
@@ -810,14 +948,94 @@ async function commitFile() {
     toast(err.message, 'err');
   } finally {
     btn.disabled = false;
+    btnDo.disabled = false;
     btn.textContent = 'Commit';
+  }
+}
+
+/* ---- Prévia HTML ---- */
+function previewHtml() {
+  if (!state.currentFile) return;
+  const html = state.currentFile.content || '';
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  $('previewTitle').textContent = state.currentFile.path.split('/').pop();
+  const frame = $('previewFrame');
+  frame.src = url;
+  $('previewOverlay').classList.remove('hidden');
+  // libera o blob depois de um tempo
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function closePreview() {
+  $('previewOverlay').classList.add('hidden');
+  $('previewFrame').src = 'about:blank';
+}
+
+/* ---- Excluir arquivo ---- */
+async function deleteCurrentFile() {
+  if (!state.currentFile || !state.currentRepo) return;
+  const path = state.currentFile.path;
+  const name = path.split('/').pop();
+
+  if (!confirm(`Excluir permanentemente\n"${name}"\n\nEssa ação não pode ser desfeita.`)) return;
+
+  setLed('busy');
+  try {
+    const { owner, name: repo } = state.currentRepo;
+    let sha = state.currentFile.sha;
+
+    // se não tiver sha (arquivo novo), tenta buscar
+    if (!sha) {
+      const getResp = await gh(`/repos/${owner}/${repo}/contents/${path}`);
+      if (getResp.status === 200) {
+        const data = await getResp.json();
+        sha = data.sha;
+      } else {
+        // arquivo ainda não existe no remoto → só fecha o editor
+        clearDraft(path);
+        state.currentFile = null;
+        state.dirty = false;
+        navigate('browser');
+        loadPath(state.currentPath);
+        toast('Arquivo descartado', 'ok');
+        setLed('');
+        return;
+      }
+    }
+
+    const resp = await gh(`/repos/${owner}/${repo}/contents/${path}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: `Delete ${path} · Deploy Panel`,
+        sha
+      })
+    });
+
+    if (resp.status !== 200 && resp.status !== 204) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.message || `Erro ${resp.status}`);
+    }
+
+    clearDraft(path);
+    state.currentFile = null;
+    state.dirty = false;
+    setLed('ok');
+    toast(`"${name}" excluído`, 'ok');
+    navigate('browser');
+    loadPath(state.currentPath);
+    setTimeout(() => setLed(''), 2000);
+  } catch (err) {
+    setLed('err');
+    toast(err.message, 'err');
   }
 }
 
 /* ============================================================
    CORE PUT (usado por commit e por upload)
    ============================================================ */
-async function putFile(path, content, knownSha = null) {
+async function putFile(path, content, knownSha = null, message = null) {
   const { owner, name } = state.currentRepo;
   let sha = knownSha;
 
@@ -834,7 +1052,7 @@ async function putFile(path, content, knownSha = null) {
   }
 
   const body = {
-    message: `Update ${path} · Deploy Panel`,
+    message: (message && message.trim()) || `Update ${path} · Deploy Panel`,
     content: btoa(unescape(encodeURIComponent(content)))
   };
   if (sha) body.sha = sha;
