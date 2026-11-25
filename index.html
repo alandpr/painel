@@ -128,19 +128,21 @@
 
     <!-- Actions bar -->
     <div class="flex gap-2 mb-3">
-      <button onclick="triggerUpload()" class="flex-1 text-[12px] mono py-2.5 rounded-lg border border-zinc-700 text-zinc-300 btn">
+      <button onclick="document.getElementById('uploadInputNormal').click()" class="flex-1 text-[12px] mono py-2.5 rounded-lg border border-zinc-700 text-zinc-300 btn">
         ⬆ Enviar arquivo
       </button>
       <button onclick="startNewFile()" class="flex-1 text-[12px] mono py-2.5 rounded-lg border border-zinc-700 text-zinc-300 btn">
         + Novo arquivo
       </button>
-      <input type="file" id="uploadInput" class="hidden" onchange="handleUpload(event)">
+      <!-- Dois inputs separados = mais confiável no Android -->
+      <input type="file" id="uploadInputNormal" class="hidden" onchange="handleUpload(event, null)">
+      <input type="file" id="uploadInputAsIndex" class="hidden" onchange="handleUpload(event, 'index.html')">
     </div>
 
     <!-- Quick deploy to index.html (only at root) -->
     <div id="quickDeploy" class="hidden panel rounded-xl p-3 mb-3">
       <div class="text-[11px] text-zinc-500 mb-2">Atalho rápido</div>
-      <button onclick="triggerUpload('index.html')" class="w-full text-[12px] mono py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 btn">
+      <button onclick="document.getElementById('uploadInputAsIndex').click()" class="w-full text-[12px] mono py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 btn">
         ⬆ Enviar como index.html
       </button>
     </div>
@@ -270,7 +272,7 @@ const state = {
   currentPath: '',       // path da pasta atual
   currentFile: null,     // { path, sha, content, original }
   dirty: false,
-  forceUploadName: null, // quando usa "enviar como index.html"
+
   view: 'repos'
 };
 
@@ -632,28 +634,30 @@ function fileIcon(name) {
 }
 
 /* ============================================================
-   UPLOAD (função que tinha sumido)
+   UPLOAD
+   Dois inputs separados (normal + forçar index.html)
+   para não perder o nome no Android enquanto o usuário escolhe o arquivo.
    ============================================================ */
-function triggerUpload(forceName = null) {
-  state.forceUploadName = forceName; // 'index.html' ou null
-  $('uploadInput').click();
-}
-
-async function handleUpload(e) {
+async function handleUpload(e, forceName) {
   const file = e.target.files[0];
-  e.target.value = '';
+  e.target.value = ''; // limpa para poder escolher o mesmo arquivo de novo
   if (!file) return;
   if (!state.currentRepo) return toast('Entre em um repositório primeiro', 'err');
 
   let targetPath;
-  if (state.forceUploadName) {
-    targetPath = state.forceUploadName;
+  if (forceName) {
+    // força o nome (ex: sempre index.html), independente do nome original
+    targetPath = forceName;
   } else {
     const base = state.currentPath ? state.currentPath + '/' : '';
     targetPath = base + file.name;
   }
 
-  if (!confirm(`Enviar "${file.name}" como:\n${targetPath}\n\nContinuar?`)) return;
+  const msg = forceName
+    ? `Enviar o arquivo\n"${file.name}"\n\ncomo\n${targetPath}\n\nContinuar?`
+    : `Enviar "${file.name}" como:\n${targetPath}\n\nContinuar?`;
+
+  if (!confirm(msg)) return;
 
   setLed('busy');
   toast('Enviando...');
@@ -661,7 +665,7 @@ async function handleUpload(e) {
   try {
     const content = await file.text();
     await putFile(targetPath, content);
-    toast('Arquivo enviado com sucesso', 'ok');
+    toast(forceName ? `Enviado como ${forceName}` : 'Arquivo enviado com sucesso', 'ok');
     setLed('ok');
     loadPath(state.currentPath); // refresh
     setTimeout(() => setLed(''), 2000);
