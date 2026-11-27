@@ -710,7 +710,10 @@ async function handleUpload(e, forceName) {
   try {
     const content = await file.text();
     await putFile(targetPath, content);
-    toast(forceName ? `Enviado como ${forceName}` : 'Arquivo enviado com sucesso', 'ok');
+    const okMsg = targetPath === 'index.html'
+      ? 'index.html atualizado + backup salvo'
+      : (forceName ? `Enviado como ${forceName}` : 'Arquivo enviado com sucesso');
+    toast(okMsg, 'ok');
     setLed('ok');
     loadPath(state.currentPath); // refresh
     setTimeout(() => setLed(''), 2000);
@@ -941,7 +944,10 @@ async function doCommit() {
     $('editorDirty').classList.add('hidden');
     clearDraft(state.currentFile.path);
     setLed('ok');
-    toast('Commit feito com sucesso', 'ok');
+    const okMsg = state.currentFile.path === 'index.html'
+      ? 'Commit ok + backup salvo em /backup'
+      : 'Commit feito com sucesso';
+    toast(okMsg, 'ok');
     setTimeout(() => setLed(''), 2000);
   } catch (err) {
     setLed('err');
@@ -1034,13 +1040,80 @@ async function deleteCurrentFile() {
 
 /* ============================================================
    CORE PUT (usado por commit e por upload)
+   + backup automático do index.html da raiz
    ============================================================ */
+
+function backupTimestamp() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}h${pad(d.getMinutes())}`;
+}
+
+/** Antes de sobrescrever o index.html da raiz, salva a versão atual em backup/ */
+async function backupCurrentIndexIfNeeded(targetPath) {
+  // só faz backup do index.html na raiz do repositório
+  if (targetPath !== 'index.html') return;
+
+  const { owner, name } = state.currentRepo;
+
+  try {
+    // busca o conteúdo atual (raw)
+    const resp = await gh(`/repos/${owner}/${name}/contents/index.html`, {
+      headers: { 'Accept': 'application/vnd.github.raw+json' }
+    });
+
+    if (resp.status === 404) {
+      // ainda não existe → nada para backup
+      return;
+    }
+    if (!resp.ok) {
+      console.warn('[backup] não conseguiu ler index.html atual:', resp.status);
+      return;
+    }
+
+    const currentContent = await resp.text();
+    if (!currentContent || !currentContent.trim()) return;
+
+    const backupPath = `backup/index-${backupTimestamp()}.html`;
+
+    // grava o backup (sem chamar putFile de novo para evitar loop)
+    const body = {
+      message: `Backup automático antes de atualizar index.html · Deploy Panel`,
+      content: btoa(unescape(encodeURIComponent(currentContent)))
+    };
+
+    const putResp = await gh(`/repos/${owner}/${name}/contents/${backupPath}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (putResp.status !== 200 && putResp.status !== 201) {
+      const err = await putResp.json().catch(() => ({}));
+      console.warn('[backup] falhou ao salvar:', err.message || putResp.status);
+      // não interrompe o upload principal — só avisa
+      toast('Aviso: não consegui fazer o backup automático', 'err');
+    } else {
+      console.log('[backup] salvo em', backupPath);
+    }
+  } catch (err) {
+    console.warn('[backup] erro:', err);
+    // não bloqueia o upload principal
+  }
+}
+
 async function putFile(path, content, knownSha = null, message = null) {
   const { owner, name } = state.currentRepo;
-  let sha = knownSha;
 
+  // 1) Backup automático se for o index.html da raiz
+  if (path === 'index.html') {
+    toast('Fazendo backup da versão atual...');
+    await backupCurrentIndexIfNeeded(path);
+  }
+
+  // 2) Descobre o SHA se não veio
+  let sha = knownSha;
   if (sha === null) {
-    // tenta descobrir se já existe
     const getResp = await gh(`/repos/${owner}/${name}/contents/${path}`);
     if (getResp.status === 200) {
       const data = await getResp.json();
@@ -1051,6 +1124,7 @@ async function putFile(path, content, knownSha = null, message = null) {
     }
   }
 
+  // 3) Envia o arquivo novo
   const body = {
     message: (message && message.trim()) || `Update ${path} · Deploy Panel`,
     content: btoa(unescape(encodeURIComponent(content)))
@@ -1068,7 +1142,7 @@ async function putFile(path, content, knownSha = null, message = null) {
     throw new Error(err.message || `Erro ${resp.status}`);
   }
 
-  // se estiver editando esse arquivo, atualiza o sha
+  // atualiza sha local se estiver editando esse arquivo
   if (state.currentFile && state.currentFile.path === path) {
     const result = await resp.json();
     state.currentFile.sha = result.content?.sha || state.currentFile.sha;
