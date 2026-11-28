@@ -169,6 +169,9 @@
         <button onclick="openCommitModal()" id="btnCommit" class="text-[12px] font-semibold bg-amber-500 text-black rounded-md px-3.5 py-1.5 btn">
           Commit
         </button>
+        <button onclick="restoreBackupAsIndex()" id="btnRestore" class="hidden text-[12px] font-semibold bg-emerald-500 text-black rounded-md px-3.5 py-1.5 btn">
+          Restaurar
+        </button>
       </div>
       <div id="draftBanner" class="hidden mt-2 text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
         <span>Rascunho salvo encontrado</span>
@@ -860,6 +863,11 @@ function openEditorUI() {
   const isHtml = /\.(html?|htm)$/i.test(f.path);
   $('btnPreview').classList.toggle('hidden', !isHtml);
 
+  // Arquivo dentro de /backup → mostra "Restaurar" em vez de "Commit"
+  const isBackup = f.path.startsWith('backup/');
+  $('btnCommit').classList.toggle('hidden', isBackup);
+  $('btnRestore').classList.toggle('hidden', !isBackup);
+
   // verifica rascunho
   state.pendingDraft = null;
   $('draftBanner').classList.add('hidden');
@@ -976,6 +984,56 @@ function previewHtml() {
 function closePreview() {
   $('previewOverlay').classList.add('hidden');
   $('previewFrame').src = 'about:blank';
+}
+
+/* ---- Restaurar backup como index.html da raiz ---- */
+async function restoreBackupAsIndex() {
+  if (!state.currentFile || !state.currentRepo) return;
+  if (!state.currentFile.path.startsWith('backup/')) {
+    return toast('Só funciona com arquivos da pasta backup', 'err');
+  }
+
+  const backupName = state.currentFile.path.split('/').pop();
+  if (!confirm(
+    `Restaurar esta versão?\n\n` +
+    `"${backupName}"\n\n` +
+    `→ vai substituir o index.html da raiz\n` +
+    `→ a versão com erro será descartada\n\n` +
+    `Continuar?`
+  )) return;
+
+  const btn = $('btnRestore');
+  btn.disabled = true;
+  btn.textContent = 'Restaurando...';
+  setLed('busy');
+
+  try {
+    // skipBackup = true → não guarda a versão com erro
+    await putFile(
+      'index.html',
+      state.currentFile.content,
+      null,
+      `Restaurado de ${backupName} · Deploy Panel`,
+      true  // skipBackup
+    );
+
+    setLed('ok');
+    toast('Versão restaurada! index.html atualizado', 'ok');
+
+    // volta para a raiz do repositório
+    state.currentFile = null;
+    state.dirty = false;
+    state.currentPath = '';
+    navigate('browser', false);
+    loadPath('');
+    setTimeout(() => setLed(''), 2000);
+  } catch (err) {
+    setLed('err');
+    toast(err.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Restaurar';
+  }
 }
 
 /* ---- Excluir arquivo ---- */
@@ -1102,11 +1160,11 @@ async function backupCurrentIndexIfNeeded(targetPath) {
   }
 }
 
-async function putFile(path, content, knownSha = null, message = null) {
+async function putFile(path, content, knownSha = null, message = null, skipBackup = false) {
   const { owner, name } = state.currentRepo;
 
-  // 1) Backup automático se for o index.html da raiz
-  if (path === 'index.html') {
+  // 1) Backup automático se for o index.html da raiz (exceto quando está restaurando)
+  if (path === 'index.html' && !skipBackup) {
     toast('Fazendo backup da versão atual...');
     await backupCurrentIndexIfNeeded(path);
   }
